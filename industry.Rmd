@@ -15,6 +15,8 @@ library(readxl)
 library(tidyverse)
 library(purrr)
 library(stringr)
+library(tidyr)
+library(ggplot2)
 ```
 
 ```{r}
@@ -26,8 +28,14 @@ blast<-read_excel("data/source/industries/blast_furnaces_steel_mills.xlsx")
 forge<-read_excel("data/source/industries/iron_and_steel_forgings.xlsx")
 foundry<-read_excel("data/source/industries/iron_steel_foundries.xlsx")
 motor<-read_excel("data/source/industries/motor_vehicles_equipment.xlsx")
-ordnance<-read_excel("data/source/industries/other_transport.xlsx")
+ordnance<-read_excel("data/source/industries/ordnance.xlsx")
+transport<-read_excel("C:/Users/alex/coding_projects/bls_data/data/source/industries/other_transport.xlsx")
 ship<-read_excel("data/source/industries/ship_building_and_repairing.xlsx")
+durgoods<-read_excel("data/source/industries/durgoods.xlsx")
+electronics<-read_excel("data/source/industries/electronics.xlsx")
+furniture<-read_excel("data/source/industries/furniture.xlsx")
+appliances<-read_excel("data/source/industries/appliances.xlsx")
+
 
 # List of dataframes and their industry names
 industry_list <- list(
@@ -37,28 +45,120 @@ industry_list <- list(
   foundry = foundry,
   motor = motor,
   ordnance = ordnance,
-  ship = ship
+  transport=transport,
+  ship = ship,
+  durgoods=durgoods,
+  electronics=electronics,
+  furniture=furniture,
+  appliances=appliances
 )
 ```
 
-```{r}
-# For each dataframe in industry_list, if there are more than 17 rows,
-# move all values up so the first 17 rows align with Year
 
-industry_list <- map(industry_list, function(df) {
-  n_rows <- nrow(df)
-  if (n_rows > 17) {
-    # For each column except Year, shift values up so only first 17 rows remain
-    df <- df[1:17, ]
-  }
-  return(df)
+```{r}
+#rename year
+industry_list <- lapply(industry_list, function(df) {
+  names(df)[names(df) == "Year"] <- "year"
+  df
 })
+
+#deal chacters and excel floating values by forcing numeric, then rounding all to 2 decimals (excluding year)
+
+industry_list <- lapply(industry_list, function(df) {
+  df %>% 
+    mutate(across(-year, ~ round(as.numeric(.), 2)))
+})
+
+#create industry column for each df in list
+
+industry_list <- imap(industry_list, ~ .x %>%
+                        mutate(industry = .y))
+
+#combine into a single df
+df <- bind_rows(industry_list) 
+
+# Reorder columns
+df <- df %>%
+  select(year, industry, everything())
+
+#remove all other variables
+rm(list = setdiff(ls(), "df"))
+
+```
+```{r}
+df <- df %>%
+  arrange(industry, year) %>%  # ensure data is sorted by industry and year
+  group_by(industry) %>%       # compute some variables per industry
+  mutate(
+    # Percentages / ratios
+    women_pct = women / all_employee * 100,
+    prod_per_employee = prod / all_employee,
+    
+    # Year-over-year percent changes
+    all_employee_pct_change = (all_employee - lag(all_employee)) / lag(all_employee) * 100,
+    prod_wk_earn_pct_change = (prod_wk_earn - lag(prod_wk_earn)) / lag(prod_wk_earn) * 100,
+    prod_hr_earn_pct_change = (prod_hr_earn - lag(prod_hr_earn)) / lag(prod_hr_earn) * 100,
+    
+    # Aggregates / totals
+    net_change = newhire - sep,
+    
+    # Separation percentages
+    quit_pct = quit / all_employee * 100,
+    layoff_pct = layoff / all_employee * 100
+  ) %>%
+  ungroup()  # remove grouping
+
+# Optionally round numeric variables to 2 decimals
+df <- df %>%
+  mutate(across(where(is.numeric), ~ round(., 2)))
 ```
 
 ```{r}
-# For each dataframe in industry_list, if there are more than 17 rows,
-# move all values up so the first 17 rows align with Year
 
-view(industry_list)
+# Identify numeric variables to create tables and plots for (excluding year and industry)
+vars_to_table <- df %>%
+  select(-year, -industry) %>%
+  names()
 
+for(var in vars_to_table){
+  safe_var <- gsub("[^A-Za-z0-9_]", "_", var)
+  
+  # Table
+  tbl <- df %>%
+    select(year, industry, all_of(var)) %>%
+    mutate(across(where(is.numeric), ~ round(., 2))) %>%
+    pivot_wider(names_from = industry, values_from = all_of(var)) %>%
+    arrange(year)
+  write_csv(tbl, paste0("tables/", safe_var, "_by_industry.csv"))
+  
+  # Plot
+  p <- ggplot(df, aes_string(x = "year", y = var, color = "industry")) +
+    geom_line(size = 1) +
+    geom_point(size = 2) +
+    scale_x_continuous(breaks = seq(min(df$year), max(df$year), by = 2)) +
+    labs(
+      title = paste("Trend of", gsub("_", " ", var), "by Industry"),
+      x = "Year",
+      y = var,
+      color = "Industry"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(hjust = 0.5),
+      legend.position = "bottom",
+      axis.text.x = element_text(angle = 45, hjust = 1)
+    )
+  
+  ggsave(
+  filename = paste0("plots/", safe_var, "_by_industry.pdf"),
+  plot = p,
+  width = 10,
+  height = 6
+)
+}
 ```
+
+
+
+
+
