@@ -1,0 +1,64 @@
+---
+title: "industry_analysis"
+output: html_document
+date: "2025-08-09"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+# Load necessary libraries
+library(readxl)
+library(tidyverse)
+library(purrr)
+library(stringr)
+```
+
+```{r}
+# read industry data as individual dataframes
+# each dataframe contains the same structure with Year and various measures
+
+aircraft<-read_excel("data/source/industries/aircraft_and_parts.xlsx")
+blast<-read_excel("data/source/industries/blast_furnaces_steel_mills.xlsx")
+forge<-read_excel("data/source/industries/iron_and_steel_forgings.xlsx")
+foundry<-read_excel("data/source/industries/iron_steel_foundries.xlsx")
+motor<-read_excel("data/source/industries/motor_vehicles_equipment.xlsx")
+ordnance<-read_excel("data/source/industries/other_transport.xlsx")
+ship<-read_excel("data/source/industries/ship_building_and_repairing.xlsx")
+
+# List of dataframes and their industry names
+industry_list <- list(
+  aircraft = aircraft,
+  blast = blast,
+  forge = forge,
+  foundry = foundry,
+  motor = motor,
+  ordnance = ordnance,
+  ship = ship
+)
+```
+
+```{r}
+# For each dataframe in industry_list, if there are more than 17 rows,
+# move all values up so the first 17 rows align with Year
+
+industry_list <- map(industry_list, function(df) {
+  n_rows <- nrow(df)
+  if (n_rows > 17) {
+    # For each column except Year, shift values up so only first 17 rows remain
+    df <- df[1:17, ]
+  }
+  return(df)
+})
+```
+
+```{r}
+# For each dataframe in industry_list, if there are more than 17 rows,
+# move all values up so the first 17 rows align with Year
+
+view(industry_list)
+
+```
