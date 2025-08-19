@@ -29,7 +29,7 @@ forge<-read_excel("data/source/industries/iron_and_steel_forgings.xlsx")
 foundry<-read_excel("data/source/industries/iron_steel_foundries.xlsx")
 motor<-read_excel("data/source/industries/motor_vehicles_equipment.xlsx")
 ordnance<-read_excel("data/source/industries/ordnance.xlsx")
-transport<-read_excel("C:/Users/alex/coding_projects/bls_data/data/source/industries/other_transport.xlsx")
+transport<-read_excel("data/source/industries/other_transport.xlsx")
 ship<-read_excel("data/source/industries/ship_building_and_repairing.xlsx")
 durgoods<-read_excel("data/source/industries/durgoods.xlsx")
 electronics<-read_excel("data/source/industries/electronics.xlsx")
@@ -120,6 +120,16 @@ macro<-c("manufacturing","durgoods")
 censusMIC <- c("aircraft", "ordnance", "motor", "ship", "electronics")
 MICplus <- c("aircraft","ordnance","motor","ship","electronics","forge","foundry")
 nonMIC<-c("furniture","appliances")
+
+#create type variable, base value on above group
+df <- df %>%
+  mutate(type = case_when(
+    industry %in% macro ~ "macro",
+    industry %in% censusMIC ~ "censusMIC",
+    industry %in% MICplus ~ "MICplus",
+    industry %in% nonMIC ~ "nonMIC",
+    TRUE ~ "other"  # fallback for any unmatched industry
+  ))
 
 
 # Filter df
