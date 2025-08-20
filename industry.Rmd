@@ -23,37 +23,15 @@ library(ggplot2)
 # read industry data as individual dataframes
 # each dataframe contains the same structure with Year and various measures
 
-aircraft<-read_excel("data/source/industries/aircraft_and_parts.xlsx")
-blast<-read_excel("data/source/industries/blast_furnaces_steel_mills.xlsx")
-forge<-read_excel("data/source/industries/iron_and_steel_forgings.xlsx")
-foundry<-read_excel("data/source/industries/iron_steel_foundries.xlsx")
-motor<-read_excel("data/source/industries/motor_vehicles_equipment.xlsx")
-ordnance<-read_excel("data/source/industries/ordnance.xlsx")
-transport<-read_excel("data/source/industries/other_transport.xlsx")
-ship<-read_excel("data/source/industries/ship_building_and_repairing.xlsx")
-durgoods<-read_excel("data/source/industries/durgoods.xlsx")
-electronics<-read_excel("data/source/industries/electronics.xlsx")
-furniture<-read_excel("data/source/industries/furniture.xlsx")
-appliances<-read_excel("data/source/industries/appliances.xlsx")
-manufacturing<-read_excel("data/source/industries/manufacturing.xlsx")
+# Read all Excel files in the folder and build industry_list automatically
+files <- list.files("data/source/industries", pattern = "\\.xlsx$", full.names = TRUE)
 
+# Strip the file extension and directory to create industry names
+industry_names <- tools::file_path_sans_ext(basename(files))
 
-# List of dataframes and their industry names
-industry_list <- list(
-  aircraft = aircraft,
-  blast = blast,
-  forge = forge,
-  foundry = foundry,
-  motor = motor,
-  ordnance = ordnance,
-  transport=transport,
-  ship = ship,
-  durgoods=durgoods,
-  electronics=electronics,
-  furniture=furniture,
-  appliances=appliances,
-  manufacturing=manufacturing
-)
+# Read each file into a dataframe, assign names, and create a named list
+industry_list <- setNames(lapply(files, read_excel), industry_names)
+
 ```
 
 
@@ -87,6 +65,25 @@ rm(list = setdiff(ls(), "df"))
 ```
 
 ```{r}
+# Define groups by industry
+macro<-c("manufacturing","durgoods")
+censusMIC <- c("aircraft", "ordnance", "motor", "ship", "electronics")
+MICplus <- c("forgings","foundries","steel")
+nonMIC<-c("furniture","appliances")
+
+#create type variable, base value on above group
+df <- df %>%
+  mutate(type = case_when(
+    industry %in% macro ~ "macro",
+    industry %in% censusMIC ~ "censusMIC",
+    industry %in% MICplus ~ "MICplus",
+    industry %in% nonMIC ~ "nonMIC",
+    TRUE ~ "other"  # fallback for any unmatched industry
+  ))
+```
+
+
+```{r}
 df <- df %>%
   arrange(industry, year) %>%  # ensure data is sorted by industry and year
   group_by(industry) %>%       # compute some variables per industry
@@ -99,15 +96,34 @@ df <- df %>%
     all_employee_pct_change = (all_employee - lag(all_employee)) / lag(all_employee) * 100,
     prod_wk_earn_pct_change = (prod_wk_earn - lag(prod_wk_earn)) / lag(prod_wk_earn) * 100,
     prod_hr_earn_pct_change = (prod_hr_earn - lag(prod_hr_earn)) / lag(prod_hr_earn) * 100,
+    women_pct_change = (women_pct - lag(women_pct)) / lag(women_pct) * 100,
     
     # Aggregates / totals
     net_change = newhire - sep,
     
     # Separation percentages
     quit_pct = quit / all_employee * 100,
-    layoff_pct = layoff / all_employee * 100
+    layoff_pct = layoff / all_employee * 100,
+    
+    #stability: layoffs vs quits
+    layoff_quit_ratio = ifelse(quit > 0, layoff / quit, NA)
   ) %>%
   ungroup()  # remove grouping
+
+
+#create variables that measure difference from avg manufacturing wage & avg durable goods wage by industry
+df <- df %>%
+  group_by(year) %>%
+  mutate(
+    manuf_prod_hr_earn = prod_hr_earn[industry == "manufacturing"],  # get benchmark
+    prod_hr_earn_diff_from_manuf = prod_hr_earn - manuf_prod_hr_earn, #absolute measure
+    prod_hr_earn_ratio_to_manuf = prod_hr_earn / manuf_prod_hr_earn, #relative measure, 1 = avg manufacturing wage
+    dur_prod_hr_earn=prod_hr_earn[industry=="durgoods"],
+    prod_hr_earn_diff_from_dur=prod_hr_earn-dur_prod_hr_earn,
+    prod_hr_earn_ratio_to_dur=prod_hr_earn/dur_prod_hr_earn
+  ) %>%
+  ungroup()
+
 
 # Optionally round numeric variables to 2 decimals
 df <- df %>%
@@ -115,23 +131,6 @@ df <- df %>%
 ```
 
 ```{r}
-# Define groups by industry
-macro<-c("manufacturing","durgoods")
-censusMIC <- c("aircraft", "ordnance", "motor", "ship", "electronics")
-MICplus <- c("aircraft","ordnance","motor","ship","electronics","forge","foundry")
-nonMIC<-c("furniture","appliances")
-
-#create type variable, base value on above group
-df <- df %>%
-  mutate(type = case_when(
-    industry %in% macro ~ "macro",
-    industry %in% censusMIC ~ "censusMIC",
-    industry %in% MICplus ~ "MICplus",
-    industry %in% nonMIC ~ "nonMIC",
-    TRUE ~ "other"  # fallback for any unmatched industry
-  ))
-
-
 # Filter df
 df_macro<-df%>%
   filter(industry%in%macro)
@@ -151,39 +150,49 @@ df_nonMIC<-df%>%
 
 ```{r}
 
-# Identify numeric variables to create tables and plots for (excluding year and industry)
-vars_to_table <- df %>%
-  select(-year, -industry) %>%
-  names()
-
-#plots and tabels function
-save_tables_and_plots <- function(df, table_path = "tables", plot_path = "plots", year_col = "year", industry_col = "industry") {
+save_tables_and_plots <- function(df, vars = NULL, 
+                                  table_path = "tables", plot_path = "plots", 
+                                  year_col = "year", industry_col = "industry",
+                                  overwrite = TRUE, facet = FALSE) {
   
   # Ensure directories exist
   if(!dir.exists(table_path)) dir.create(table_path, recursive = TRUE)
   if(!dir.exists(plot_path)) dir.create(plot_path, recursive = TRUE)
   
-  # Identify numeric variables excluding year and industry
-  vars_to_table <- df %>%
-    select(-all_of(c(year_col, industry_col))) %>%
-    names()
+  # Identify numeric variables (exclude year/industry) if not provided
+  if(is.null(vars)){
+    vars <- df %>%
+      select(-all_of(c(year_col, industry_col))) %>%
+      select(where(is.numeric)) %>%
+      names()
+  }
   
-  for(var in vars_to_table){
+  for(var in vars){
     safe_var <- gsub("[^A-Za-z0-9_]", "_", var)
     
-    # Create table
+    # Skip variables with all NA or constant values
+    if(all(is.na(df[[var]])) || dplyr::n_distinct(df[[var]], na.rm = TRUE) < 2) {
+      message("Skipping ", var, " (all NA or constant)")
+      next
+    }
+    
+    # --- Create table ---
     tbl <- df %>%
       select(all_of(c(year_col, industry_col, var))) %>%
       pivot_wider(names_from = all_of(industry_col), values_from = all_of(var)) %>%
       arrange(.data[[year_col]])
     
-    write_csv(tbl, file.path(table_path, paste0(safe_var, "_by_industry.csv")))
+    table_file <- file.path(table_path, paste0(safe_var, "_by_industry.csv"))
+    if(!file.exists(table_file) || overwrite){
+      write_csv(tbl, table_file)
+    }
     
-    # Create plot
+    # --- Create plot ---
     p <- ggplot(df, aes(x = .data[[year_col]], y = .data[[var]], color = .data[[industry_col]])) +
       geom_line(size = 1) +
       geom_point(size = 2) +
-      scale_x_continuous(breaks = seq(min(df[[year_col]]), max(df[[year_col]]), by = 2)) +
+      scale_x_continuous(breaks = seq(min(df[[year_col]], na.rm = TRUE), 
+                                      max(df[[year_col]], na.rm = TRUE), by = 2)) +
       labs(
         title = paste("Trend of", gsub("_", " ", var), "by Industry"),
         x = year_col,
@@ -193,9 +202,14 @@ save_tables_and_plots <- function(df, table_path = "tables", plot_path = "plots"
       theme_minimal() +
       theme(
         plot.title = element_text(hjust = 0.5),
-        legend.position = "bottom",
+        legend.position = ifelse(facet, "none", "bottom"),
         axis.text.x = element_text(angle = 45, hjust = 1)
       )
+    
+    # Optional: facet if too many industries
+    if(facet){
+      p <- p + facet_wrap(vars(.data[[industry_col]]), scales = "free_y")
+    }
     
     # Save both PDF and PNG
     ggsave(filename = file.path(plot_path, paste0(safe_var, "_by_industry.pdf")),
@@ -204,6 +218,20 @@ save_tables_and_plots <- function(df, table_path = "tables", plot_path = "plots"
            plot = p, width = 10, height = 6, dpi = 300)
   }
 }
+
+#examples:
+
+# Use all numeric variables
+#save_tables_and_plots(df, table_path = "tables/all", plot_path = "plots/all")
+
+# Use only selected variables
+#save_tables_and_plots(df, vars = c("prod_hr_earn", "women_pct"), 
+#                      table_path = "tables/focus", plot_path = "plots/focus")
+
+# Use faceted plots for readability
+#save_tables_and_plots(df_censusMIC, facet = TRUE, 
+#                      table_path = "tables/censusMIC", plot_path = "plots/censusMIC")
+
 ```
 
 ```{r}
@@ -241,5 +269,263 @@ for(var in vars_to_plot){
   print(p) # display in RStudio / notebook
 }
 ```
+
+
+```{r}
+# Difference from manufacturing (standardized y-axis)
+ggplot(df, aes(x = year, y = prod_hr_earn_diff_from_manuf)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  geom_line(color = "steelblue") +
+  facet_wrap(~ industry, scales = "fixed") +  # fixed y-axis for comparability
+  labs(title = "Hourly Earnings vs Manufacturing (Difference)",
+       y = "Difference from Manufacturing ($)",
+       x = "Year") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    strip.text = element_text(face = "bold")
+  )
+
+# Ratio to manufacturing (standardized y-axis)
+ggplot(df, aes(x = year, y = prod_hr_earn_ratio_to_manuf)) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "gray50") +
+  geom_line(color = "darkgreen") +
+  facet_wrap(~ industry, scales = "fixed") +  # fixed y-axis for comparability
+  labs(title = "Hourly Earnings vs Manufacturing (Ratio)",
+       y = "Relative to Manufacturing (1 = equal)",
+       x = "Year") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    strip.text = element_text(face = "bold")
+  )
+
+# Difference from durable goods (standardized y-axis)
+ggplot(df, aes(x = year, y = prod_hr_earn_diff_from_dur)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  geom_line(color = "orange") +
+  facet_wrap(~ industry, scales = "fixed") +  # fixed y-axis for comparability
+  labs(title = "Hourly Earnings vs Durable Goods (Difference)",
+       y = "Difference from Durable Goods ($)",
+       x = "Year") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    strip.text = element_text(face = "bold")
+  )
+
+# Ratio to durable goods (standardized y-axis)
+ggplot(df, aes(x = year, y = prod_hr_earn_ratio_to_dur)) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "gray50") +
+  geom_line(color = "darkred") +
+  facet_wrap(~ industry, scales = "fixed") +  # fixed y-axis for comparability
+  labs(title = "Hourly Earnings vs Durable Goods (Ratio)",
+       y = "Relative to Durable Goods (1 = equal)",
+       x = "Year") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    strip.text = element_text(face = "bold")
+  )
+
+
+```
+```{r}
+# Compute y-axis limits for differences
+diff_min <- min(c(df$prod_hr_earn_diff_from_manuf, df$prod_hr_earn_diff_from_dur), na.rm = TRUE)
+diff_max <- max(c(df$prod_hr_earn_diff_from_manuf, df$prod_hr_earn_diff_from_dur), na.rm = TRUE)
+
+# Compute y-axis limits for ratios
+ratio_min <- min(c(df$prod_hr_earn_ratio_to_manuf, df$prod_hr_earn_ratio_to_dur), na.rm = TRUE)
+ratio_max <- max(c(df$prod_hr_earn_ratio_to_manuf, df$prod_hr_earn_ratio_to_dur), na.rm = TRUE)
+
+# Difference from manufacturing
+ggplot(df, aes(x = year, y = prod_hr_earn_diff_from_manuf)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  geom_line(color = "steelblue") +
+  facet_wrap(~ industry, scales = "fixed") +
+  coord_cartesian(ylim = c(diff_min, diff_max)) +
+  labs(title = "Hourly Earnings vs Manufacturing (Difference)",
+       y = "Difference ($)", x = "Year") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        strip.text = element_text(face = "bold"))
+
+# Difference from durable goods
+ggplot(df, aes(x = year, y = prod_hr_earn_diff_from_dur)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  geom_line(color = "orange") +
+  facet_wrap(~ industry, scales = "fixed") +
+  coord_cartesian(ylim = c(diff_min, diff_max)) +
+  labs(title = "Hourly Earnings vs Durable Goods (Difference)",
+       y = "Difference ($)", x = "Year") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        strip.text = element_text(face = "bold"))
+
+# Ratio to manufacturing
+ggplot(df, aes(x = year, y = prod_hr_earn_ratio_to_manuf)) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "gray50") +
+  geom_line(color = "darkgreen") +
+  facet_wrap(~ industry, scales = "fixed") +
+  coord_cartesian(ylim = c(ratio_min, ratio_max)) +
+  labs(title = "Hourly Earnings vs Manufacturing (Ratio)",
+       y = "Relative (1=equal)", x = "Year") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        strip.text = element_text(face = "bold"))
+
+# Ratio to durable goods
+ggplot(df, aes(x = year, y = prod_hr_earn_ratio_to_dur)) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "gray50") +
+  geom_line(color = "darkred") +
+  facet_wrap(~ industry, scales = "fixed") +
+  coord_cartesian(ylim = c(ratio_min, ratio_max)) +
+  labs(title = "Hourly Earnings vs Durable Goods (Ratio)",
+       y = "Relative (1=equal)", x = "Year") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        strip.text = element_text(face = "bold"))
+
+```
+```{r}
+# Compute average hourly wage for censusMIC + MICplus
+avg_censusMIC_MICplus <- df %>%
+  filter(industry %in% c(censusMIC, MICplus)) %>%
+  group_by(year) %>%
+  summarize(avg_prod_hr_earn = mean(prod_hr_earn, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(group = "censusMIC + MICplus")
+
+# Compute average hourly wage for nonMIC
+avg_nonMIC <- df %>%
+  filter(industry %in% nonMIC) %>%
+  group_by(year) %>%
+  summarize(avg_prod_hr_earn = mean(prod_hr_earn, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(group = "nonMIC")
+
+# Extract manufacturing hourly wage
+manufacturing_df <- df %>%
+  filter(industry == "manufacturing") %>%
+  select(year, prod_hr_earn) %>%
+  rename(avg_prod_hr_earn = prod_hr_earn) %>%
+  mutate(group = "manufacturing")
+
+# Combine all for plotting
+plot_df <- bind_rows(avg_censusMIC_MICplus, avg_nonMIC, manufacturing_df)
+
+# Plot
+ggplot(plot_df, aes(x = year, y = avg_prod_hr_earn, color = group)) +
+  geom_line(size = 1.5) +
+  geom_point(size = 2) +
+  scale_x_continuous(breaks = seq(min(plot_df$year), max(plot_df$year), by = 2)) +
+  labs(
+    title = "Average Hourly Wage: MIC vs Manufacturing Avg vs Consumer",
+    x = "Year",
+    y = "Hourly Wage (Real $)",
+    color = "Group"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+
+```
+```{r}
+# Compute average ratio for censusMIC + MICplus
+avg_ratio_censusMIC_MICplus <- df %>%
+  filter(industry %in% c(censusMIC, MICplus)) %>%
+  group_by(year) %>%
+  summarize(avg_ratio_to_manuf = mean(prod_hr_earn_ratio_to_manuf, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(group = "censusMIC + MICplus")
+
+# Compute average ratio for nonMIC
+avg_ratio_nonMIC <- df %>%
+  filter(industry %in% nonMIC) %>%
+  group_by(year) %>%
+  summarize(avg_ratio_to_manuf = mean(prod_hr_earn_ratio_to_manuf, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(group = "nonMIC")
+
+# Manufacturing ratio to itself is always 1
+manufacturing_ratio_df <- df %>%
+  filter(industry == "manufacturing") %>%
+  select(year, prod_hr_earn_ratio_to_manuf) %>%
+  rename(avg_ratio_to_manuf = prod_hr_earn_ratio_to_manuf) %>%
+  mutate(group = "manufacturing")
+
+# Combine all for plotting
+plot_ratio_df <- bind_rows(avg_ratio_censusMIC_MICplus, avg_ratio_nonMIC, manufacturing_ratio_df)
+
+# Plot
+ggplot(plot_ratio_df, aes(x = year, y = avg_ratio_to_manuf, color = group)) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "gray50") +
+  geom_line(size = 1.5) +
+  geom_point(size = 2) +
+  scale_x_continuous(breaks = seq(min(plot_ratio_df$year), max(plot_ratio_df$year), by = 2)) +
+  labs(
+    title = "Average Hourly Wage Relative to Manufacturing",
+    x = "Year",
+    y = "Relative to Manufacturing (1 = equal)",
+    color = "Group"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+
+```
+
+
+
+```{r}
+library(reshape2)
+
+corr_data <- df %>%
+  select(prod_per_employee, women_pct, quit_pct, layoff_pct, prod_hr_earn) %>%
+  cor(use = "pairwise.complete.obs")
+
+ggplot(melt(corr_data), aes(Var1, Var2, fill = value)) +
+  geom_tile() +
+  geom_text(aes(label = round(value, 2))) +
+  scale_fill_gradient2(low = "red", high = "blue", mid = "white", midpoint = 0) +
+  labs(title = "Correlation Heatmap") +
+  theme_minimal()
+
+```
+
+```{r}
+years_to_plot <- c(1960:1970)
+
+for(yr in years_to_plot){
+  p <- ggplot(df %>% filter(year == yr), aes(x = industry, y = prod_hr_earn_ratio_to_manuf)) +
+    geom_boxplot() +
+    coord_flip() +
+    labs(title = paste("Hourly Earnings Ratio to Manufacturing -", yr)) +
+    theme_minimal()
+  print(p)
+}
+
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
