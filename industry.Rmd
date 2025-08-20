@@ -67,8 +67,8 @@ rm(list = setdiff(ls(), "df"))
 ```{r}
 # Define groups by industry
 macro<-c("manufacturing","durgoods")
-censusMIC <- c("aircraft", "ordnance", "motor", "ship", "electronics")
-MICplus <- c("forgings","foundries","steel")
+censusMIC <- c("aircraft", "ordnance","communications", "ship", "electronics")
+MICplus <- c("forgings","foundries","steel","motor")
 nonMIC<-c("furniture","appliances")
 
 #create type variable, base value on above group
@@ -389,39 +389,54 @@ ggplot(df, aes(x = year, y = prod_hr_earn_ratio_to_dur)) +
 
 ```
 ```{r}
-# Compute average hourly wage for censusMIC + MICplus
-avg_censusMIC_MICplus <- df %>%
+# --- Absolute average hourly wage plots ---
+
+# censusMIC only
+avg_abs_censusMIC <- df %>%
+  filter(industry %in% censusMIC) %>%
+  group_by(year) %>%
+  summarize(avg_prod_hr_earn = mean(prod_hr_earn, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(group = "censusMIC")
+
+# censusMIC + MICplus
+avg_abs_censusMIC_MICplus <- df %>%
   filter(industry %in% c(censusMIC, MICplus)) %>%
   group_by(year) %>%
   summarize(avg_prod_hr_earn = mean(prod_hr_earn, na.rm = TRUE)) %>%
   ungroup() %>%
   mutate(group = "censusMIC + MICplus")
 
-# Compute average hourly wage for nonMIC
-avg_nonMIC <- df %>%
+# nonMIC
+avg_abs_nonMIC <- df %>%
   filter(industry %in% nonMIC) %>%
   group_by(year) %>%
   summarize(avg_prod_hr_earn = mean(prod_hr_earn, na.rm = TRUE)) %>%
   ungroup() %>%
   mutate(group = "nonMIC")
 
-# Extract manufacturing hourly wage
-manufacturing_df <- df %>%
+# manufacturing
+manufacturing_abs_df <- df %>%
   filter(industry == "manufacturing") %>%
   select(year, prod_hr_earn) %>%
   rename(avg_prod_hr_earn = prod_hr_earn) %>%
   mutate(group = "manufacturing")
 
-# Combine all for plotting
-plot_df <- bind_rows(avg_censusMIC_MICplus, avg_nonMIC, manufacturing_df)
+# Combine
+plot_abs_df <- bind_rows(
+  avg_abs_censusMIC,
+  avg_abs_censusMIC_MICplus,
+  avg_abs_nonMIC,
+  manufacturing_abs_df
+)
 
-# Plot
-ggplot(plot_df, aes(x = year, y = avg_prod_hr_earn, color = group)) +
+# Plot absolute average hourly wages
+ggplot(plot_abs_df, aes(x = year, y = avg_prod_hr_earn, color = group)) +
   geom_line(size = 1.5) +
   geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(plot_df$year), max(plot_df$year), by = 2)) +
+  scale_x_continuous(breaks = seq(min(plot_abs_df$year), max(plot_abs_df$year), by = 2)) +
   labs(
-    title = "Average Hourly Wage: MIC vs Manufacturing Avg vs Consumer",
+    title = "Average Hourly Wage by Group (Absolute)",
     x = "Year",
     y = "Hourly Wage (Real $)",
     color = "Group"
@@ -432,6 +447,70 @@ ggplot(plot_df, aes(x = year, y = avg_prod_hr_earn, color = group)) +
   )
 
 ```
+
+```{r}
+# Compute average ratio for censusMIC only
+avg_ratio_censusMIC <- df %>%
+  filter(industry %in% censusMIC) %>%
+  group_by(year) %>%
+  summarize(avg_ratio_to_manuf = mean(prod_hr_earn_ratio_to_manuf, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(group = "censusMIC")
+
+# Compute average ratio for censusMIC + MICplus
+avg_ratio_censusMIC_MICplus <- df %>%
+  filter(industry %in% c(censusMIC, MICplus)) %>%
+  group_by(year) %>%
+  summarize(avg_ratio_to_manuf = mean(prod_hr_earn_ratio_to_manuf, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(group = "censusMIC + MICplus")
+
+# Compute average ratio for nonMIC
+avg_ratio_nonMIC <- df %>%
+  filter(industry %in% nonMIC) %>%
+  group_by(year) %>%
+  summarize(avg_ratio_to_manuf = mean(prod_hr_earn_ratio_to_manuf, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(group = "nonMIC")
+
+# Manufacturing ratio to itself is always 1
+manufacturing_ratio_df <- df %>%
+  filter(industry == "manufacturing") %>%
+  select(year, prod_hr_earn_ratio_to_manuf) %>%
+  rename(avg_ratio_to_manuf = prod_hr_earn_ratio_to_manuf) %>%
+  mutate(group = "manufacturing")
+
+# Combine all for plotting (now with censusMIC line too)
+plot_ratio_df <- bind_rows(
+  avg_ratio_censusMIC,
+  avg_ratio_censusMIC_MICplus,
+  avg_ratio_nonMIC,
+  manufacturing_ratio_df
+)
+
+# Plot
+ggplot(plot_ratio_df, aes(x = year, y = avg_ratio_to_manuf, color = group)) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "gray50") +
+  geom_line(size = 1.5) +
+  geom_point(size = 2) +
+  scale_x_continuous(breaks = seq(min(plot_ratio_df$year), max(plot_ratio_df$year), by = 2)) +
+  labs(
+    title = "Average Hourly Wage Relative to Manufacturing",
+    x = "Year",
+    y = "Relative to Manufacturing (1 = equal)",
+    color = "Group"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+
+
+
+```
+
+
+
 ```{r}
 # Compute average ratio for censusMIC + MICplus
 avg_ratio_censusMIC_MICplus <- df %>%
