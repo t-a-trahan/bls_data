@@ -592,7 +592,40 @@ for(yr in years_to_plot){
 
 ```
 
+```{r}
+df <- df %>%
+  mutate(type = case_when(
+    industry == "manufacturing" ~ "manufacturing",
+    industry == "durgoods" ~ "durgoods",
+    industry %in% censusMIC ~ "censusMIC",
+    industry %in% MICplus ~ "MICplus",
+    industry %in% nonMIC ~ "nonMIC",
+    TRUE ~ "other"
+  ))
 
+unique(reg_df$type)
+
+
+reg_df <- df %>%
+  filter(type %in% c("censusMIC", "MICplus", "nonMIC", "manufacturing")) %>%
+  group_by(year, type) %>%
+  summarize(avg_wage = mean(prod_hr_earn, na.rm = TRUE), .groups = "drop")
+
+reg_df$type <- relevel(as.factor(reg_df$type), ref = "manufacturing")
+wage_lm <- lm(avg_wage ~ year + type, data = reg_df)
+summary(wage_lm)
+
+
+```
+
+```{r}
+# Make sure type is a factor, with manufacturing as the reference
+reg_df$type <- relevel(as.factor(reg_df$type), ref = "macro")
+
+# Refit regression
+wage_lm <- lm(avg_wage ~ year + type, data = reg_df)
+summary(wage_lm)
+```
 
 
 
