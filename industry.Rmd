@@ -67,7 +67,7 @@ rm(list = setdiff(ls(), "df"))
 ```{r}
 # Define groups by industry
 macro<-c("manufacturing","durgoods")
-censusMIC <- c("aircraft", "ordnance","communications", "ship", "electronics")
+censusMIC <- c("aircraft", "ordnance","communication", "ship", "electronics")
 MICplus <- c("forgings","foundries","steel","motor")
 nonMIC<-c("furniture","appliances")
 
@@ -388,6 +388,8 @@ ggplot(df, aes(x = year, y = prod_hr_earn_ratio_to_dur)) +
         strip.text = element_text(face = "bold"))
 
 ```
+
+
 ```{r}
 # --- Absolute average hourly wage plots ---
 
@@ -447,6 +449,7 @@ ggplot(plot_abs_df, aes(x = year, y = avg_prod_hr_earn, color = group)) +
   )
 
 ```
+
 
 ```{r}
 # Compute average ratio for censusMIC only
@@ -508,53 +511,43 @@ ggplot(plot_ratio_df, aes(x = year, y = avg_ratio_to_manuf, color = group)) +
 
 
 ```
-
-
-
 ```{r}
-# Compute average ratio for censusMIC + MICplus
-avg_ratio_censusMIC_MICplus <- df %>%
-  filter(industry %in% c(censusMIC, MICplus)) %>%
+# Filter for censusMIC industries and manufacturing
+censusMIC_industries <- df %>%
+  filter(industry %in% censusMIC | industry == "manufacturing")
+
+# Create ratio to manufacturing for each industry
+censusMIC_ratio_df <- censusMIC_industries %>%
   group_by(year) %>%
-  summarize(avg_ratio_to_manuf = mean(prod_hr_earn_ratio_to_manuf, na.rm = TRUE)) %>%
+  mutate(manuf_wage = prod_hr_earn[industry == "manufacturing"]) %>%
   ungroup() %>%
-  mutate(group = "censusMIC + MICplus")
+  mutate(ratio_to_manuf = prod_hr_earn / manuf_wage) %>%
+  filter(industry != "manufacturing")  # Remove manufacturing itself
 
-# Compute average ratio for nonMIC
-avg_ratio_nonMIC <- df %>%
-  filter(industry %in% nonMIC) %>%
-  group_by(year) %>%
-  summarize(avg_ratio_to_manuf = mean(prod_hr_earn_ratio_to_manuf, na.rm = TRUE)) %>%
-  ungroup() %>%
-  mutate(group = "nonMIC")
-
-# Manufacturing ratio to itself is always 1
-manufacturing_ratio_df <- df %>%
-  filter(industry == "manufacturing") %>%
-  select(year, prod_hr_earn_ratio_to_manuf) %>%
-  rename(avg_ratio_to_manuf = prod_hr_earn_ratio_to_manuf) %>%
-  mutate(group = "manufacturing")
-
-# Combine all for plotting
-plot_ratio_df <- bind_rows(avg_ratio_censusMIC_MICplus, avg_ratio_nonMIC, manufacturing_ratio_df)
-
-# Plot
-ggplot(plot_ratio_df, aes(x = year, y = avg_ratio_to_manuf, color = group)) +
-  geom_hline(yintercept = 1, linetype = "dashed", color = "gray50") +
-  geom_line(size = 1.5) +
+# Plot each censusMIC industry against manufacturing baseline
+ggplot(censusMIC_ratio_df, aes(x = year, y = ratio_to_manuf, color = industry)) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "gray50", size = 1) +
+  geom_line(size = 1.2) +
   geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(plot_ratio_df$year), max(plot_ratio_df$year), by = 2)) +
+  scale_x_continuous(breaks = seq(min(censusMIC_ratio_df$year), 
+                                 max(censusMIC_ratio_df$year), by = 2)) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
   labs(
-    title = "Average Hourly Wage Relative to Manufacturing",
+    title = "Hourly Wage Relative to Manufacturing by Census MIC Industry",
+    subtitle = "1.0 = Equal to Manufacturing Wage",
     x = "Year",
-    y = "Relative to Manufacturing (1 = equal)",
-    color = "Group"
+    y = "Wage Relative to Manufacturing",
+    color = "Census MIC Industry"
   ) +
   theme_minimal() +
   theme(
-    plot.title = element_text(hjust = 0.5)
-  )
-
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+    plot.subtitle = element_text(hjust = 0.5, color = "gray50", size = 12),
+    legend.position = "bottom",
+    legend.title = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) +
+  guides(color = guide_legend(nrow = 2, byrow = TRUE))
 ```
 
 
@@ -618,14 +611,6 @@ summary(wage_lm)
 
 ```
 
-```{r}
-# Make sure type is a factor, with manufacturing as the reference
-reg_df$type <- relevel(as.factor(reg_df$type), ref = "macro")
-
-# Refit regression
-wage_lm <- lm(avg_wage ~ year + type, data = reg_df)
-summary(wage_lm)
-```
 
 
 
